@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src https://cdnjs.cloudflare.com; img-src * data: blob:; media-src * blob:; connect-src https://generativelanguage.googleapis.com;">
 <title>فيدورا - تخزين الفيديو السحابي</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl0HPNiecjotRSB0ZRxbvkCFUx2+xDwLFHkv64STbXqfE8yTR3Z+9SuaVpOYa89ONSHpIqQSumIKEg==" crossorigin="anonymous" referrerpolicy="no-referrer">
 <style>
 :root {
   --primary:#1e3a8a; --secondary:#3b82f6; --accent:#60a5fa;
@@ -773,7 +774,14 @@ select.form-input option { background:var(--card); color:var(--text); }
 <canvas id="thumbCanvas" style="display:none;"></canvas>
 
 <script>
-const GEMINI_KEY = 'AIzaSyB6t3rYYLthUmlCh6MepNhBLSVfmW29yDs';
+// API key is loaded at runtime — never hardcode secrets in source code
+let GEMINI_KEY = sessionStorage.getItem('gemini_api_key') || '';
+function getGeminiKey() {
+  if (GEMINI_KEY) return GEMINI_KEY;
+  const key = prompt('Enter your Gemini API key for translation:');
+  if (key && key.trim()) { GEMINI_KEY = key.trim(); sessionStorage.setItem('gemini_api_key', GEMINI_KEY); }
+  return GEMINI_KEY;
+}
 
 // ========== الكود الكامل للتطبيق ==========
 const APP_CODE = {
@@ -817,8 +825,8 @@ import express from 'express';
 const app = express();
 const PORT = 3000;
 
-// مفتاح Gemini
-const GEMINI_API_KEY = '${GEMINI_KEY}';
+// API key loaded from environment variable — never hardcode
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 
 // نقاط API
 app.post('/api/auth/login', (req, res) => { /* تسجيل الدخول */ });
@@ -828,6 +836,25 @@ app.get('/api/admin/users', (req, res) => { /* إدارة المستخدمين *
 
 app.listen(PORT, () => console.log('VIDORA server on port ' + PORT));`
 };
+
+// ===== Security helpers =====
+function escHtml(str) {
+  if (typeof str !== 'string') return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+async function hashPassword(password) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function generateSecureKey() {
+  const arr = new Uint8Array(20);
+  crypto.getRandomValues(arr);
+  return 'VIDORA_' + Array.from(arr).map(b => b.toString(36).padStart(2,'0')).join('').toUpperCase().substring(0, 24);
+}
 
 class VIDORAApp {
   constructor() {
@@ -853,18 +880,19 @@ class VIDORAApp {
   }
 
   loadInitialData() {
+    // Passwords are stored as SHA-256 hashes — never store plaintext passwords
     this.users = [
-      {id:1,email:'omarxdll.x@gmail.com',password:'Omar11223',role:'superadmin',createdAt:'2024-01-01'},
-      {id:2,email:'admin@vidora.com',password:'123456',role:'admin',createdAt:'2024-01-01'},
-      {id:3,email:'pro@vidora.com',password:'123456',role:'pro',createdAt:'2024-01-02'},
-      {id:4,email:'user@vidora.com',password:'123456',role:'user',createdAt:'2024-01-03'}
+      {id:1,email:'omarxdll.x@gmail.com',passwordHash:'6f6323168b3d0b610c7595dd7652b1eb967fcc3b01dfb63b3f4a4d59008bad8a',role:'superadmin',createdAt:'2024-01-01'},
+      {id:2,email:'admin@vidora.com',passwordHash:'8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92',role:'admin',createdAt:'2024-01-01'},
+      {id:3,email:'pro@vidora.com',passwordHash:'8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92',role:'pro',createdAt:'2024-01-02'},
+      {id:4,email:'user@vidora.com',passwordHash:'8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92',role:'user',createdAt:'2024-01-03'}
     ];
     this.bannedUsers = [
-      {id:5,email:'banned@vidora.com',password:'123456',role:'user',createdAt:'2024-01-01',banned:true,banReason:'انتهاك الشروط',banDate:'2024-01-10'}
+      {id:5,email:'banned@vidora.com',passwordHash:'8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92',role:'user',createdAt:'2024-01-01',banned:true,banReason:'انتهاك الشروط',banDate:'2024-01-10'}
     ];
     this.apiKeys = [
-      {id:'1',name:'مفتاح تطوير',key:'VIDORA_API_DEV_KEY_12345',created:'2024-01-01',permissions:['read','write','delete']},
-      {id:'2',name:'مفتاح إنتاج',key:'VIDORA_API_PROD_KEY_67890',created:'2024-01-05',permissions:['read']}
+      {id:'1',name:'مفتاح تطوير',key:generateSecureKey(),created:'2024-01-01',permissions:['read','write','delete']},
+      {id:'2',name:'مفتاح إنتاج',key:generateSecureKey(),created:'2024-01-05',permissions:['read']}
     ];
     this.playlists = [
       {id:'1',name:'فيديوهات الطبيعة',userId:'omarxdll.x@gmail.com',videoCount:2,createdAt:'2024-01-10',color:'#3b82f6'},
@@ -1073,23 +1101,30 @@ class VIDORAApp {
   }
 
   // ===== تسجيل الدخول =====
-  login() {
+  async login() {
     const email = document.getElementById('loginEmail').value.trim();
     const pass   = document.getElementById('loginPassword').value;
+    if (!email || !pass) { this.showAlert('أدخل البريد الإلكتروني وكلمة المرور','error'); return; }
     const banned = this.bannedUsers.find(u=>u.email===email);
-    if(banned) { this.showAlert(`الحساب محظور — السبب: ${banned.banReason}`,'error'); return; }
-    const user = this.users.find(u=>u.email===email && u.password===pass);
-    if(user) { this.currentUser=user; this.saveToStorage(); this.showMainApp(); this.showAlert(`مرحباً ${user.email} 👋`,'success'); }
+    if(banned) { this.showAlert(`الحساب محظور — السبب: ${escHtml(banned.banReason)}`,'error'); return; }
+    const passHash = await hashPassword(pass);
+    const user = this.users.find(u=>u.email===email && u.passwordHash===passHash);
+    if(user) { this.currentUser=user; this.saveToStorage(); this.showMainApp(); this.showAlert(`مرحباً ${escHtml(user.email)} 👋`,'success'); }
     else this.showAlert('بريد إلكتروني أو كلمة مرور غير صحيحة','error');
   }
 
   async register() {
     const email = await Dialog.prompt('أدخل بريدك الإلكتروني:', '', 'example@email.com');
     if (!email) return;
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) { this.showAlert('صيغة البريد الإلكتروني غير صحيحة','error'); return; }
     if(this.users.find(u=>u.email===email)||this.bannedUsers.find(u=>u.email===email)) { this.showAlert('البريد مستخدم بالفعل','error'); return; }
-    const pass = await Dialog.prompt('أدخل كلمة المرور:', '', 'كلمة المرور...');
+    const pass = await Dialog.prompt('أدخل كلمة المرور (6 أحرف على الأقل):', '', 'كلمة المرور...');
     if (!pass) return;
-    this.users.push({id:this.users.length+1,email,password:pass,role:'user',createdAt:new Date().toISOString().split('T')[0]});
+    if (pass.length < 6) { this.showAlert('كلمة المرور يجب أن تكون 6 أحرف على الأقل','error'); return; }
+    const passHash = await hashPassword(pass);
+    this.users.push({id:this.users.length+1,email,passwordHash:passHash,role:'user',createdAt:new Date().toISOString().split('T')[0]});
     this.showAlert('تم إنشاء الحساب بنجاح! سجّل الدخول الآن.','success');
   }
 
@@ -1149,7 +1184,7 @@ class VIDORAApp {
     if(!name) { this.showAlert('أدخل اسم القائمة','error'); return; }
     const pl = {id:Date.now().toString(),name,userId:this.currentUser.email,videoCount:0,createdAt:new Date().toISOString().split('T')[0],color:this.rndColor()};
     this.playlists.push(pl); this.hideModal('createPlaylistModal'); this.loadPlaylists();
-    this.showAlert(`✅ تم إنشاء "${name}"`,'success');
+    this.showAlert(`✅ تم إنشاء "${escHtml(name)}"`,'success');
   }
 
   rndColor() { return ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ef4444','#06b6d4','#f97316'][Math.floor(Math.random()*7)]; }
@@ -1158,7 +1193,7 @@ class VIDORAApp {
     const list = document.getElementById('playlistsList'); list.innerHTML='';
     this.playlists.filter(p=>p.userId===this.currentUser.email).forEach(p => {
       const d = document.createElement('div'); d.className='playlist-item'; d.dataset.id=p.id;
-      d.innerHTML=`<div class="playlist-dot" style="background:${p.color};"></div><div class="playlist-info"><div class="playlist-name">${p.name}</div><div class="playlist-count">${p.videoCount} فيديو</div></div><button class="playlist-menu-btn"><svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg></button>`;
+      d.innerHTML=`<div class="playlist-dot" style="background:${escHtml(p.color)};"></div><div class="playlist-info"><div class="playlist-name">${escHtml(p.name)}</div><div class="playlist-count">${p.videoCount} فيديو</div></div><button class="playlist-menu-btn"><svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg></button>`;
       d.addEventListener('click', e => { if(!e.target.closest('.playlist-menu-btn')) this.selectPlaylist(p.id); });
       d.querySelector('.playlist-menu-btn').addEventListener('click', e => { e.stopPropagation(); this.editingPlaylistId=p.id; document.getElementById('playlistCtxMenu').classList.add('show'); const close=ev=>{if(!document.getElementById('playlistCtxMenu').contains(ev.target)){document.getElementById('playlistCtxMenu').classList.remove('show');document.removeEventListener('click',close);}};setTimeout(()=>document.addEventListener('click',close),10); });
       list.appendChild(d);
@@ -1395,7 +1430,7 @@ class VIDORAApp {
       const bg = v.thumbBg || '#1e3a5c';
       let thumbInner = '';
       if (v.thumbnail) {
-        thumbInner = `<img src="${v.thumbnail}" alt="${v.title}" loading="lazy"
+        thumbInner = `<img src="${escHtml(v.thumbnail)}" alt="${escHtml(v.title)}" loading="lazy"
           style="width:100%;height:100%;object-fit:cover;display:block;"
           onerror="this.style.display='none';this.parentElement.querySelector('.no-thumb').style.display='flex';">
           <div class="no-thumb" style="display:none;width:100%;height:100%;position:absolute;inset:0;align-items:center;justify-content:center;background:linear-gradient(135deg,${bg},#0a0a1a);">
@@ -1427,10 +1462,10 @@ class VIDORAApp {
           </button>
         </div>
         <div class="v-info" style="padding:14px;">
-          <div class="v-title" style="font-weight:600;font-size:14px;line-height:1.4;height:40px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${v.title}</div>
+          <div class="v-title" style="font-weight:600;font-size:14px;line-height:1.4;height:40px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${escHtml(v.title)}</div>
           <div class="v-meta" style="display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin-top:8px;">
-            <span>${v.uploadDate}</span>
-            <span class="v-quality" style="background:color-mix(in srgb,var(--secondary) 20%,transparent);color:var(--accent);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;">${v.quality || ''}</span>
+            <span>${escHtml(v.uploadDate)}</span>
+            <span class="v-quality" style="background:color-mix(in srgb,var(--secondary) 20%,transparent);color:var(--accent);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;">${escHtml(v.quality || '')}</span>
           </div>
         </div>`;
 
@@ -1596,8 +1631,10 @@ class VIDORAApp {
     const langNames = { en:'English', fr:'French', de:'German', tr:'Turkish', es:'Spanish' };
 
     try {
+      const apiKey = getGeminiKey();
+      if (!apiKey) { this.showAlert('لم يتم توفير مفتاح API','error'); return; }
       const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1650,13 +1687,13 @@ class VIDORAApp {
       const rmap={admin:'role-admin',pro:'role-pro',user:'role-user'};
       const rlabel={admin:'Admin',pro:'Pro',user:'مستخدم'};
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${u.email}</td><td>${u.createdAt}</td>
-        <td><span class="role-badge ${rmap[u.role]||'role-user'}">${rlabel[u.role]||u.role}</span></td>
+      tr.innerHTML=`<td>${escHtml(u.email)}</td><td>${escHtml(u.createdAt)}</td>
+        <td><span class="role-badge ${rmap[u.role]||'role-user'}">${escHtml(rlabel[u.role]||u.role)}</span></td>
         <td>${pl}</td><td>${vc}</td>
         <td class="action-btns">
-          <button class="btn btn-ghost btn-sm edit-u" data-email="${u.email}"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>تعديل</button>
-          <button class="btn btn-warning btn-sm view-v" data-email="${u.email}"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 10l4.553-2.069A1 1 0 0 1 21 8.868v6.264a1 1 0 0 1-1.447.899L15 14v-4z"/><rect x="1" y="6" width="15" height="12" rx="2"/></svg>فيديوهات</button>
-          <button class="btn btn-danger btn-sm ban-u" data-email="${u.email}"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>حظر</button>
+          <button class="btn btn-ghost btn-sm edit-u" data-email="${escHtml(u.email)}"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>تعديل</button>
+          <button class="btn btn-warning btn-sm view-v" data-email="${escHtml(u.email)}"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 10l4.553-2.069A1 1 0 0 1 21 8.868v6.264a1 1 0 0 1-1.447.899L15 14v-4z"/><rect x="1" y="6" width="15" height="12" rx="2"/></svg>فيديوهات</button>
+          <button class="btn btn-danger btn-sm ban-u" data-email="${escHtml(u.email)}"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>حظر</button>
         </td>`;
       tbody.appendChild(tr);
     });
@@ -1669,8 +1706,8 @@ class VIDORAApp {
     const tbody=document.getElementById('bannedTableBody'); tbody.innerHTML='';
     this.bannedUsers.forEach(u=>{
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${u.email}</td><td>${u.banDate||'—'}</td><td>${u.banReason||'—'}</td>
-        <td><button class="btn btn-success btn-sm unban-u" data-email="${u.email}"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>فك الحظر</button></td>`;
+      tr.innerHTML=`<td>${escHtml(u.email)}</td><td>${escHtml(u.banDate||'—')}</td><td>${escHtml(u.banReason||'—')}</td>
+        <td><button class="btn btn-success btn-sm unban-u" data-email="${escHtml(u.email)}"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>فك الحظر</button></td>`;
       tbody.appendChild(tr);
     });
     tbody.querySelectorAll('.unban-u').forEach(b=>b.onclick=()=>this.unbanUser(b.dataset.email));
@@ -1678,7 +1715,7 @@ class VIDORAApp {
 
   editUser(email) {
     const u=this.users.find(x=>x.email===email); if(!u) return;
-    document.getElementById('editUserInfo').innerHTML=`<strong>${u.email}</strong><br><small style="color:var(--muted);">تسجيل: ${u.createdAt} — رتبة: ${u.role}</small>`;
+    document.getElementById('editUserInfo').innerHTML=`<strong>${escHtml(u.email)}</strong><br><small style="color:var(--muted);">تسجيل: ${escHtml(u.createdAt)} — رتبة: ${escHtml(u.role)}</small>`;
     document.getElementById('roleSelect').value=u.role;
     ['saveUserBtn','banUserBtn','viewVideosBtn'].forEach(id=>document.getElementById(id).dataset.email=email);
     this.showModal('editUserModal');
@@ -1691,7 +1728,7 @@ class VIDORAApp {
     u.role=role;
     if(this.currentUser&&this.currentUser.email===email){this.currentUser.role=role;this.updateUI();}
     this.hideModal('editUserModal'); this.loadUsersTable();
-    this.showAlert(`✅ تم تحديث رتبة ${email}`,'success');
+    this.showAlert(`✅ تم تحديث رتبة ${escHtml(email)}`,'success');
   }
 
   async banUser(email) {
@@ -1703,7 +1740,7 @@ class VIDORAApp {
     u.banned=true; u.banReason=reason||'انتهاك الشروط'; u.banDate=new Date().toISOString().split('T')[0];
     this.users.splice(idx,1); this.bannedUsers.push(u);
     this.loadUsersTable(); this.loadBannedTable();
-    this.showAlert(`تم حظر ${email}`,'success');
+    this.showAlert(`تم حظر ${escHtml(email)}`,'success');
   }
 
   unbanUser(email) {
@@ -1711,7 +1748,7 @@ class VIDORAApp {
     const u=this.bannedUsers[idx]; delete u.banned; delete u.banReason; delete u.banDate;
     this.bannedUsers.splice(idx,1); this.users.push(u);
     this.loadUsersTable(); this.loadBannedTable();
-    this.showAlert(`تم فك حظر ${email}`,'success');
+    this.showAlert(`تم فك حظر ${escHtml(email)}`,'success');
   }
 
   viewUserVideos(email) {
@@ -1736,7 +1773,7 @@ class VIDORAApp {
         card.style.cursor = 'pointer';
         const bg = v.thumbBg || '#1e3a5c';
         const thumbInner = v.thumbnail
-          ? `<img src="${v.thumbnail}" alt="${v.title}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none'">`
+          ? `<img src="${escHtml(v.thumbnail)}" alt="${escHtml(v.title)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none'">`
           : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,${bg},#0a0a1a);">
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5">
                 <path d="M15 10l4.553-2.069A1 1 0 0 1 21 8.868v6.264a1 1 0 0 1-1.447.899L15 14v-4z"/>
@@ -1754,10 +1791,10 @@ class VIDORAApp {
             <div style="position:absolute;bottom:8px;left:8px;background:rgba(0,0,0,0.75);color:#fff;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;">${v.duration || ''}</div>
           </div>
           <div class="v-info" style="padding:12px;">
-            <div style="font-weight:600;font-size:13px;line-height:1.4;height:38px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${v.title}</div>
+            <div style="font-weight:600;font-size:13px;line-height:1.4;height:38px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${escHtml(v.title)}</div>
             <div style="display:flex;justify-content:space-between;color:var(--muted);font-size:11px;margin-top:6px;">
-              <span>${v.uploadDate}</span>
-              <span style="background:color-mix(in srgb,var(--secondary) 20%,transparent);color:var(--accent);padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;">${v.quality || ''}</span>
+              <span>${escHtml(v.uploadDate)}</span>
+              <span style="background:color-mix(in srgb,var(--secondary) 20%,transparent);color:var(--accent);padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;">${escHtml(v.quality || '')}</span>
             </div>
           </div>`;
         card.addEventListener('mouseenter', () => {
@@ -1793,7 +1830,7 @@ class VIDORAApp {
 
   // ===== API Keys =====
   _mkKey(name) {
-    return {id:Date.now().toString(),name:name||'مفتاح جديد',key:'VIDORA_'+Math.random().toString(36).substring(2,12).toUpperCase()+'_'+Math.random().toString(36).substring(2,8).toUpperCase(),created:new Date().toISOString().split('T')[0],permissions:['read','write']};
+    return {id:Date.now().toString(),name:name||'مفتاح جديد',key:generateSecureKey(),created:new Date().toISOString().split('T')[0],permissions:['read','write']};
   }
   createApiKeyFromAdmin() { Dialog.prompt('اسم المفتاح الجديد:', '', 'مفتاح API...').then(n => { if(n===null) return; this.apiKeys.push(this._mkKey(n)); this.loadApiKeys(); this.showAlert('✅ تم إنشاء مفتاح API','success'); }); }
   createApiKeyFromDev()   { const n=document.getElementById('newApiKeyName').value.trim(); this.apiKeys.push(this._mkKey(n)); document.getElementById('newApiKeyName').value=''; this.loadDevApiKeys(); this.showAlert('✅ تم إنشاء مفتاح API','success'); }
@@ -1808,13 +1845,15 @@ class VIDORAApp {
 
   _renderKeyCard(k, ctx) {
     const d=document.createElement('div'); d.className='api-key-card';
-    d.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><strong>${k.name}</strong><span style="color:var(--muted);font-size:11px;">${k.created}</span></div>
-      <div class="api-key-val">${k.key}</div>
+    d.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><strong>${escHtml(k.name)}</strong><span style="color:var(--muted);font-size:11px;">${escHtml(k.created)}</span></div>
+      <div class="api-key-val">${escHtml(k.key)}</div>
       <div style="display:flex;gap:8px;">
-        <button class="btn btn-ghost btn-sm" onclick="navigator.clipboard.writeText('${k.key}').then(()=>app.showAlert('تم النسخ','success'))"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>نسخ</button>
-        <button class="btn btn-danger btn-sm" onclick="app.deleteApiKey('${k.id}','${ctx}')"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>حذف</button>
-        <span style="font-size:11px;color:var(--muted);margin-right:auto;align-self:center;">${k.permissions.join(' · ')}</span>
+        <button class="btn btn-ghost btn-sm copy-key-btn"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>نسخ</button>
+        <button class="btn btn-danger btn-sm del-key-btn"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>حذف</button>
+        <span style="font-size:11px;color:var(--muted);margin-right:auto;align-self:center;">${k.permissions.map(p=>escHtml(p)).join(' · ')}</span>
       </div>`;
+    d.querySelector('.copy-key-btn').addEventListener('click', () => navigator.clipboard.writeText(k.key).then(()=>app.showAlert('تم النسخ','success')));
+    d.querySelector('.del-key-btn').addEventListener('click', () => app.deleteApiKey(k.id, ctx));
     return d;
   }
 
@@ -1874,12 +1913,8 @@ class VIDORAApp {
         this.showAlert('✅ تم تطبيق CSS مباشرة','success');
       } catch(e) { this.showAlert('خطأ في CSS: '+e.message,'error'); }
     } else if(file==='js') {
-      // تنفيذ JavaScript
-      try {
-        const fn = new Function(code);
-        fn.call(window);
-        this.showAlert('✅ تم تنفيذ JavaScript','success');
-      } catch(e) { this.showAlert('خطأ: '+e.message,'error'); }
+      // JS execution disabled for security — code is saved as text only
+      this.showAlert('كود JavaScript محفوظ — يُطبق عند رفعه للسيرفر','info');
     } else {
       this.showAlert(`كود ${file.toUpperCase()} محفوظ — يُطبق عند رفعه للسيرفر`,'info');
     }
@@ -1927,7 +1962,7 @@ class VIDORAApp {
     };
     const c=document.getElementById('alertsContainer');
     const el=document.createElement('div'); el.className=`alert alert-${type}`;
-    el.innerHTML=`<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">${icons[type]||icons.info}</svg>${msg}`;
+    el.innerHTML=`<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">${icons[type]||icons.info}</svg>${escHtml(msg)}`;
     c.appendChild(el);
     el.onclick=()=>el.remove();
     setTimeout(()=>{ el.style.transition='opacity .3s'; el.style.opacity='0'; setTimeout(()=>el.remove(),300); },4500);
@@ -1950,7 +1985,6 @@ class VIDORAApp {
 }
 
 const app = new VIDORAApp();
-window.VIDORA = app;
 
 // ============================================================
 // نظام الحوار المخصص — يحل محل confirm() و prompt() تماماً
@@ -1964,7 +1998,7 @@ const Dialog = {
       const ov = document.getElementById('vdialog-overlay');
       document.getElementById('vdialog-icon').textContent    = icon;
       document.getElementById('vdialog-title').textContent   = title;
-      document.getElementById('vdialog-msg').innerHTML       = message;
+      document.getElementById('vdialog-msg').textContent      = message;
       const inp = document.getElementById('vdialog-input');
       if (inputLabel) {
         inp.style.display       = 'block';
