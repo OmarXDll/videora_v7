@@ -1148,7 +1148,7 @@ class VIDORAApp {
     const name = document.getElementById('playlistNameInput').value.trim();
     if(!name) { this.showAlert('أدخل اسم القائمة','error'); return; }
     const pl = {id:Date.now().toString(),name,userId:this.currentUser.email,videoCount:0,createdAt:new Date().toISOString().split('T')[0],color:this.rndColor()};
-    this.playlists.push(pl); this.hideModal('createPlaylistModal'); this.loadPlaylists();
+    this.playlists.push(pl); this.saveToStorage(); this.hideModal('createPlaylistModal'); this.loadPlaylists();
     this.showAlert(`✅ تم إنشاء "${name}"`,'success');
   }
 
@@ -1170,7 +1170,7 @@ class VIDORAApp {
     const p = this.playlists.find(x=>x.id===this.editingPlaylistId); if(!p) return;
     const newName = await Dialog.prompt('الاسم الجديد للقائمة:', p.name, 'اسم القائمة...');
     if(newName && newName.trim()){
-      p.name=newName.trim(); this.loadPlaylists();
+      p.name=newName.trim(); this.saveToStorage(); this.loadPlaylists();
       if(this.currentPlaylistId===p.id) document.getElementById('currentPlaylistName').textContent=newName;
       this.showAlert('تم تحديث القائمة','success');
     }
@@ -1183,6 +1183,7 @@ class VIDORAApp {
     if(!ok) { document.getElementById('playlistCtxMenu').classList.remove('show'); return; }
     this.playlists=this.playlists.filter(p=>p.id!==this.editingPlaylistId);
     this.videos=this.videos.filter(v=>v.playlistId!==this.editingPlaylistId);
+    this.saveToStorage();
     if(this.currentPlaylistId===this.editingPlaylistId) this.showHome();
     this.loadPlaylists(); this.loadVideos();
     document.getElementById('playlistCtxMenu').classList.remove('show');
@@ -1364,6 +1365,7 @@ class VIDORAApp {
     const v = {id:Date.now().toString(),...data,playlistId:this.currentPlaylistId,uploadDate:new Date().toISOString().split('T')[0],userId:this.currentUser.email};
     this.videos.push(v);
     const p=this.playlists.find(x=>x.id===this.currentPlaylistId); if(p) p.videoCount++;
+    this.saveToStorage();
     this.hideModal('addVideoModal'); this.loadPlaylists(); this.loadVideos();
   }
 
@@ -1517,6 +1519,7 @@ class VIDORAApp {
     const idx=this.videos.findIndex(v=>v.id===id); if(idx===-1) return;
     const v=this.videos[idx]; this.videos.splice(idx,1);
     const p=this.playlists.find(x=>x.id===v.playlistId); if(p&&p.videoCount>0) p.videoCount--;
+    this.saveToStorage();
     this.loadPlaylists(); this.loadVideos(); this.showAlert('تم حذف الفيديو','success');
   }
 
@@ -1937,6 +1940,30 @@ class VIDORAApp {
     if(this.currentUser) localStorage.setItem('vidora_user',JSON.stringify(this.currentUser));
     localStorage.setItem('vidora_theme',this.currentTheme);
     localStorage.setItem('vidora_lang',this.currentLang);
+    // حفظ الفيديوهات — نستبعد الروابط المؤقتة (blob:) لأنها لا تنجو بين الجلسات
+    const serializableVideos = this.videos.map(v => ({
+      id: v.id,
+      title: v.title,
+      url: (v.url && v.url.startsWith('blob:')) ? '' : v.url,
+      thumbnail: (v.thumbnail && v.thumbnail.startsWith('blob:')) ? '' : v.thumbnail,
+      thumbBg: v.thumbBg || '',
+      playlistId: v.playlistId,
+      duration: v.duration || '',
+      quality: v.quality || '',
+      uploadDate: v.uploadDate || '',
+      userId: v.userId
+    }));
+    localStorage.setItem('vidora_videos', JSON.stringify(serializableVideos));
+    // حفظ قوائم التشغيل
+    const serializablePlaylists = this.playlists.map(p => ({
+      id: p.id,
+      name: p.name,
+      userId: p.userId,
+      videoCount: p.videoCount,
+      createdAt: p.createdAt,
+      color: p.color
+    }));
+    localStorage.setItem('vidora_playlists', JSON.stringify(serializablePlaylists));
   }
 
   loadFromStorage() {
@@ -1946,6 +1973,38 @@ class VIDORAApp {
     const l=localStorage.getItem('vidora_lang'); if(l) this.currentLang=l;
     const vs=localStorage.getItem('vcw'); if(vs) this.changeCardSize(vs);
     const sets=localStorage.getItem('vidora_settings'); if(sets) this.settings={...this.settings,...JSON.parse(sets)};
+    // تحميل الفيديوهات المحفوظة — دمجها مع البيانات الأولية بدون تكرار
+    const savedVideos = localStorage.getItem('vidora_videos');
+    if(savedVideos) {
+      try {
+        const parsed = JSON.parse(savedVideos);
+        if(Array.isArray(parsed)) {
+          const existingIds = new Set(this.videos.map(v => v.id));
+          parsed.forEach(v => {
+            if(!existingIds.has(v.id)) {
+              this.videos.push(v);
+              existingIds.add(v.id);
+            }
+          });
+        }
+      } catch(e) { console.warn('خطأ في تحميل الفيديوهات المحفوظة:', e); }
+    }
+    // تحميل قوائم التشغيل المحفوظة — دمجها مع البيانات الأولية بدون تكرار
+    const savedPlaylists = localStorage.getItem('vidora_playlists');
+    if(savedPlaylists) {
+      try {
+        const parsed = JSON.parse(savedPlaylists);
+        if(Array.isArray(parsed)) {
+          const existingIds = new Set(this.playlists.map(p => p.id));
+          parsed.forEach(p => {
+            if(!existingIds.has(p.id)) {
+              this.playlists.push(p);
+              existingIds.add(p.id);
+            }
+          });
+        }
+      } catch(e) { console.warn('خطأ في تحميل قوائم التشغيل المحفوظة:', e); }
+    }
   }
 }
 
